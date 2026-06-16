@@ -238,13 +238,18 @@ async function insertEdital(
   const existe = await pool.query('SELECT id FROM editais WHERE hash_unico = $1', [hash])
   if (existe.rows.length) return false
 
+  const ano = new Date().getFullYear()
+  const countRes = await pool.query("SELECT COUNT(*) FROM editais WHERE id_edital LIKE $1", [`BR-${ano}-%`])
+  const seq = (parseInt(countRes.rows[0].count, 10) + 1).toString().padStart(3, '0')
+  const idEdital = `BR-${ano}-${seq}`
+
   await pool.query(`
     INSERT INTO editais (
       fonte_id, titulo, orgao, descricao, categoria_id,
       abrangencia, link_edital, status, hash_unico, data_coleta,
-      fonte_encontrada
-    ) VALUES ($1, $2, $3, $4, $5, 'nacional', $6, 'Aberto', $7, CURRENT_DATE, $6)
-  `, [fonteId, titulo.slice(0, 500), orgao, descricao.slice(0, 2000), catId, link, hash])
+      fonte_encontrada, id_edital
+    ) VALUES ($1, $2, $3, $4, $5, 'nacional', $6, 'Aberto', $7, CURRENT_DATE, $6, $8)
+  `, [fonteId, titulo.slice(0, 500), orgao, descricao.slice(0, 2000), catId, link, hash, idEdital])
   return true
 }
 

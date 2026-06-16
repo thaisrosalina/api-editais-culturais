@@ -111,14 +111,20 @@ async function insertEdital(
   const existe = await pool.query('SELECT id FROM editais WHERE hash_unico = $1', [hash])
   if (existe.rows.length) return false
 
+  const status = (encerramento && new Date(encerramento) < new Date()) ? 'Encerrado' : 'Aberto'
+  const ano = new Date().getFullYear()
+  const countRes = await pool.query("SELECT COUNT(*) FROM editais WHERE id_edital LIKE $1", [`BR-${ano}-%`])
+  const seq = (parseInt(countRes.rows[0].count, 10) + 1).toString().padStart(3, '0')
+  const idEdital = `BR-${ano}-${seq}`
+
   await pool.query(`
     INSERT INTO editais (
       fonte_id, titulo, orgao, descricao, categoria_id,
       abrangencia, link_edital, link_inscricao, status, hash_unico,
       data_coleta, data_encerramento, pode_pj, fonte_encontrada,
-      subsetores_obs
-    ) VALUES ($1, $2, $3, $4, $5, 'nacional', $6, $6, 'Aberto', $7, CURRENT_DATE, $8, true, 'https://prosas.com.br', $9)
-  `, [fonteId, titulo.slice(0, 500), orgao, descricao.slice(0, 2000), catId, link, hash, encerramento, `Área: ${area}`])
+      subsetores_obs, id_edital
+    ) VALUES ($1, $2, $3, $4, $5, 'nacional', $6, $6, $7, $8, CURRENT_DATE, $9, true, 'https://prosas.com.br', $10, $11)
+  `, [fonteId, titulo.slice(0, 500), orgao, descricao.slice(0, 2000), catId, link, status, hash, encerramento, `Área: ${area}`, idEdital])
   return true
 }
 

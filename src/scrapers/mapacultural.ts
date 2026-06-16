@@ -68,25 +68,31 @@ export async function scrapeMapaCultural(): Promise<number> {
       const setores = op.terms?.area || []
       const dataAbertura = op.registrationFrom ? op.registrationFrom.split('T')[0] : null
       const dataEncerramento = op.registrationTo ? op.registrationTo.split('T')[0] : null
+      const status = (dataEncerramento && new Date(dataEncerramento) < new Date()) ? 'Encerrado' : 'Aberto'
+
+      const ano = new Date().getFullYear()
+      const countRes = await pool.query("SELECT COUNT(*) FROM editais WHERE id_edital LIKE $1", [`BR-${ano}-%`])
+      const seq = (parseInt(countRes.rows[0].count, 10) + 1).toString().padStart(3, '0')
+      const idEdital = `BR-${ano}-${seq}`
 
       await pool.query(`
         INSERT INTO editais (
           fonte_id, titulo, orgao, descricao, categoria_id,
           abrangencia, link_edital, link_inscricao, status, hash_unico,
           data_coleta, data_abertura, data_encerramento,
-          setores, pode_pf, pode_pj, fonte_encontrada
+          setores, pode_pf, pode_pj, fonte_encontrada, id_edital
         ) VALUES (
           $1, $2, $3, $4, $5,
-          'nacional', $6, $6, 'Aberto', $7,
-          CURRENT_DATE, $8, $9,
-          $10, true, true, 'https://mapas.cultura.gov.br'
+          'nacional', $6, $6, $7, $8,
+          CURRENT_DATE, $9, $10,
+          $11, true, true, 'https://mapas.cultura.gov.br', $12
         )
       `, [
         fonteId, op.name.slice(0, 500), orgao,
         (op.shortDescription || '').slice(0, 2000), catId,
-        link, hash,
+        link, status, hash,
         dataAbertura, dataEncerramento,
-        setores.length > 0 ? setores : null,
+        setores.length > 0 ? setores : null, idEdital,
       ])
       novos++
     }

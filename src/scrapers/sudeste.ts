@@ -215,15 +215,29 @@ async function insertEdital(
   const existe = await pool.query('SELECT id FROM editais WHERE hash_unico = $1', [hash])
   if (existe.rows.length) return false
 
+  const status = (encerramento && new Date(encerramento) < new Date()) ? 'Encerrado' : 'Aberto'
+  const idEdital = await gerarIdEdital(uf)
+
   await pool.query(`
     INSERT INTO editais (
       fonte_id, titulo, orgao, descricao, categoria_id,
       abrangencia, uf, municipio, link_edital, status, hash_unico,
-      data_coleta, data_encerramento, data_abertura, fonte_encontrada
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'Aberto', $10, CURRENT_DATE, $11, $12, $9)
+      data_coleta, data_encerramento, data_abertura, fonte_encontrada, id_edital
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_DATE, $12, $13, $9, $14)
   `, [fonteId, titulo.slice(0, 500), orgao, descricao.slice(0, 2000), catId,
-      abrangencia, uf, municipio, link, hash, encerramento, abertura])
+      abrangencia, uf, municipio, link, status, hash, encerramento, abertura, idEdital])
   return true
+}
+
+async function gerarIdEdital(uf: string | null): Promise<string> {
+  const ano = new Date().getFullYear()
+  const prefix = uf ? `${uf}-${ano}` : `BR-${ano}`
+  const res = await pool.query(
+    "SELECT COUNT(*) FROM editais WHERE id_edital LIKE $1",
+    [`${prefix}-%`]
+  )
+  const seq = (parseInt(res.rows[0].count, 10) + 1).toString().padStart(3, '0')
+  return `${prefix}-${seq}`
 }
 
 function resolveLink(link: string, baseUrl: string): string {
