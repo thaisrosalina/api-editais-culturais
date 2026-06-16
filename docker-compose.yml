@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: editais-db
+    ports:
+      - "5434:5432"
+    environment:
+      POSTGRES_DB: editais_culturais
+      POSTGRES_USER: editais
+      POSTGRES_PASSWORD: editais123
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
