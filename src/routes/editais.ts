@@ -90,38 +90,34 @@ router.get('/', async (req: Request, res: Response) => {
     ${where}
   `
   const dataQuery = `
-    SELECT e.*,
+    SELECT sub.*,
            c.nome AS categoria_nome, c.slug AS categoria_slug,
-           f.nome AS fonte_nome,
-           CASE
-             WHEN e.data_encerramento IS NOT NULL
-             THEN (e.data_encerramento - CURRENT_DATE)::int
-             ELSE NULL
-           END AS dias_restantes,
-           CASE
-             WHEN e.data_encerramento IS NOT NULL AND e.data_encerramento < CURRENT_DATE
-               AND e.status IN ('Aberto', 'Em breve')
-             THEN 'Encerrado'
-             ELSE e.status
-           END AS status
-    FROM editais e
-    LEFT JOIN categorias c ON c.id = e.categoria_id
-    LEFT JOIN fontes f ON f.id = e.fonte_id
-    ${where}
+           f.nome AS fonte_nome
+    FROM (
+      SELECT e.*,
+             (e.data_encerramento - CURRENT_DATE)::int AS dias_restantes,
+             CASE
+               WHEN e.data_encerramento IS NOT NULL AND e.data_encerramento < CURRENT_DATE
+                 AND LOWER(e.status) IN ('aberto', 'em breve', 'em_breve')
+               THEN 'Encerrado'
+               WHEN LOWER(e.status) = 'aberto' THEN 'Aberto'
+               WHEN LOWER(e.status) IN ('em_breve', 'em breve') THEN 'Em breve'
+               WHEN LOWER(e.status) = 'encerrado' THEN 'Encerrado'
+               WHEN LOWER(e.status) = 'suspenso' THEN 'Suspenso'
+               WHEN LOWER(e.status) = 'resultado' THEN 'Resultado publicado'
+               ELSE e.status
+             END AS status_calc
+      FROM editais e
+    ) sub
+    LEFT JOIN categorias c ON c.id = sub.categoria_id
+    LEFT JOIN fontes f ON f.id = sub.fonte_id
+    ${where ? where.replace(/e\./g, 'sub.') : ''}
     ORDER BY
-      CASE
-        WHEN e.data_encerramento IS NOT NULL AND e.data_encerramento < CURRENT_DATE
-          AND e.status IN ('Aberto', 'Em breve') THEN 'Encerrado'
-        ELSE e.status
-      END = 'Aberto' DESC,
-      CASE
-        WHEN e.data_encerramento IS NOT NULL AND e.data_encerramento < CURRENT_DATE
-          AND e.status IN ('Aberto', 'Em breve') THEN 'Encerrado'
-        ELSE e.status
-      END = 'Em breve' DESC,
-      e.data_encerramento ASC NULLS LAST,
-      e.prioridade = 'Alta' DESC,
-      e.criado_em DESC
+      sub.status_calc = 'Aberto' DESC,
+      sub.status_calc = 'Em breve' DESC,
+      sub.data_encerramento ASC NULLS LAST,
+      sub.prioridade = 'Alta' DESC,
+      sub.criado_em DESC
     LIMIT $${i++} OFFSET $${i++}
   `
   params.push(lim, offset)
@@ -135,7 +131,10 @@ router.get('/', async (req: Request, res: Response) => {
     total: parseInt(countRes.rows[0].count, 10),
     pagina: pag,
     limite: lim,
-    dados: dataRes.rows,
+    dados: dataRes.rows.map(r => {
+      const { status_calc, ...rest } = r
+      return { ...rest, status: status_calc }
+    }),
   })
 })
 
@@ -244,16 +243,23 @@ router.get('/export/csv', async (req: Request, res: Response) => {
 router.get('/:id', async (req: Request, res: Response) => {
   const id = String(req.params.id)
   const isNumeric = /^\d+$/.test(id)
+  const statusCalc = `
+    CASE
+      WHEN e.data_encerramento IS NOT NULL AND e.data_encerramento < CURRENT_DATE
+        AND LOWER(e.status) IN ('aberto', 'em breve', 'em_breve')
+      THEN 'Encerrado'
+      WHEN LOWER(e.status) = 'aberto' THEN 'Aberto'
+      WHEN LOWER(e.status) IN ('em_breve', 'em breve') THEN 'Em breve'
+      WHEN LOWER(e.status) = 'encerrado' THEN 'Encerrado'
+      WHEN LOWER(e.status) = 'suspenso' THEN 'Suspenso'
+      WHEN LOWER(e.status) = 'resultado' THEN 'Resultado publicado'
+      ELSE e.status
+    END`
   const query = isNumeric
     ? `SELECT e.*, c.nome AS categoria_nome, c.slug AS categoria_slug,
               f.nome AS fonte_nome, f.url_base AS fonte_url,
               (e.data_encerramento - CURRENT_DATE)::int AS dias_restantes,
-              CASE
-                WHEN e.data_encerramento IS NOT NULL AND e.data_encerramento < CURRENT_DATE
-                  AND e.status IN ('Aberto', 'Em breve')
-                THEN 'Encerrado'
-                ELSE e.status
-              END AS status
+              ${statusCalc} AS status_calc
        FROM editais e
        LEFT JOIN categorias c ON c.id = e.categoria_id
        LEFT JOIN fontes f ON f.id = e.fonte_id
@@ -261,12 +267,7 @@ router.get('/:id', async (req: Request, res: Response) => {
     : `SELECT e.*, c.nome AS categoria_nome, c.slug AS categoria_slug,
               f.nome AS fonte_nome, f.url_base AS fonte_url,
               (e.data_encerramento - CURRENT_DATE)::int AS dias_restantes,
-              CASE
-                WHEN e.data_encerramento IS NOT NULL AND e.data_encerramento < CURRENT_DATE
-                  AND e.status IN ('Aberto', 'Em breve')
-                THEN 'Encerrado'
-                ELSE e.status
-              END AS status
+              ${statusCalc} AS status_calc
        FROM editais e
        LEFT JOIN categorias c ON c.id = e.categoria_id
        LEFT JOIN fontes f ON f.id = e.fonte_id
@@ -274,7 +275,8 @@ router.get('/:id', async (req: Request, res: Response) => {
 
   const { rows } = await pool.query(query, [id])
   if (!rows.length) { res.status(404).json({ erro: 'Edital não encontrado' }); return }
-  res.json(rows[0])
+  const { status_calc, ...rest } = rows[0]
+  res.json({ ...rest, status: status_calc })
 })
 
 export default router

@@ -3,6 +3,19 @@ import pool from '../db/pool.js'
 
 const router = Router()
 
+const STATUS_CALC = `
+  CASE
+    WHEN data_encerramento IS NOT NULL AND data_encerramento < CURRENT_DATE
+      AND LOWER(status) IN ('aberto', 'em breve', 'em_breve')
+    THEN 'Encerrado'
+    WHEN LOWER(status) = 'aberto' THEN 'Aberto'
+    WHEN LOWER(status) IN ('em_breve', 'em breve') THEN 'Em breve'
+    WHEN LOWER(status) = 'encerrado' THEN 'Encerrado'
+    WHEN LOWER(status) = 'suspenso' THEN 'Suspenso'
+    WHEN LOWER(status) = 'resultado' THEN 'Resultado publicado'
+    ELSE status
+  END`
+
 /**
  * @swagger
  * /api/stats:
@@ -19,15 +32,9 @@ router.get('/', async (_req: Request, res: Response) => {
       SELECT COUNT(*)::int AS total_editais,
              COUNT(DISTINCT fonte_id)::int AS total_fontes,
              COALESCE(SUM(renuncia_total_estimada), 0)::numeric AS valor_total_somado,
-             COUNT(*) FILTER (WHERE
-               CASE WHEN data_encerramento < CURRENT_DATE AND status IN ('Aberto','Em breve') THEN 'Encerrado' ELSE status END = 'Aberto'
-             )::int AS editais_abertos,
-             COUNT(*) FILTER (WHERE
-               CASE WHEN data_encerramento < CURRENT_DATE AND status IN ('Aberto','Em breve') THEN 'Encerrado' ELSE status END = 'Encerrado'
-             )::int AS editais_encerrados,
-             COUNT(*) FILTER (WHERE
-               CASE WHEN data_encerramento < CURRENT_DATE AND status IN ('Aberto','Em breve') THEN 'Encerrado' ELSE status END = 'Em breve'
-             )::int AS editais_em_breve,
+             COUNT(*) FILTER (WHERE ${STATUS_CALC} = 'Aberto')::int AS editais_abertos,
+             COUNT(*) FILTER (WHERE ${STATUS_CALC} = 'Encerrado')::int AS editais_encerrados,
+             COUNT(*) FILTER (WHERE ${STATUS_CALC} = 'Em breve')::int AS editais_em_breve,
              COUNT(*) FILTER (WHERE pode_pf = true)::int AS aceita_pf,
              COUNT(*) FILTER (WHERE pode_pj = true)::int AS aceita_pj
       FROM editais
@@ -43,11 +50,8 @@ router.get('/', async (_req: Request, res: Response) => {
       GROUP BY c.id HAVING COUNT(e.id) > 0 ORDER BY total DESC
     `),
     pool.query(`
-      SELECT
-        CASE WHEN data_encerramento < CURRENT_DATE AND status IN ('Aberto','Em breve') THEN 'Encerrado' ELSE status END AS status,
-        COUNT(*)::int AS total
-      FROM editais
-      GROUP BY 1 ORDER BY total DESC
+      SELECT ${STATUS_CALC} AS status, COUNT(*)::int AS total
+      FROM editais GROUP BY 1 ORDER BY total DESC
     `),
     pool.query(`
       SELECT modalidade, COUNT(*)::int AS total
@@ -68,7 +72,7 @@ router.get('/', async (_req: Request, res: Response) => {
       SELECT id_edital, titulo, (data_encerramento - CURRENT_DATE)::int AS dias_restantes,
              prioridade, go_nogo
       FROM editais
-      WHERE CASE WHEN data_encerramento < CURRENT_DATE AND status IN ('Aberto','Em breve') THEN 'Encerrado' ELSE status END = 'Aberto'
+      WHERE ${STATUS_CALC} = 'Aberto'
         AND data_encerramento IS NOT NULL
         AND (data_encerramento - CURRENT_DATE) <= 15
       ORDER BY data_encerramento ASC
