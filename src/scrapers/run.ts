@@ -1,13 +1,11 @@
-import { scrapeFunarte } from './funarte.js'
-import { scrapeGovBrCultura } from './govbr-cultura.js'
+import { scrapeGovBr } from './govbr-cultura.js'
 import { scrapeProsa } from './prosas.js'
 import { scrapeMapaCultural } from './mapacultural.js'
 
 const scrapers = [
-  { nome: 'Gov.br / MinC', fn: scrapeGovBrCultura },
-  { nome: 'Funarte', fn: scrapeFunarte },
-  { nome: 'Prosas', fn: scrapeProsa },
-  { nome: 'Mapa Cultural', fn: scrapeMapaCultural },
+  { nome: 'Gov.br (Cultura, Esporte, MMA, MCTI, Terceiro Setor, Funarte, FINEP, CNPq)', fn: scrapeGovBr },
+  { nome: 'Prosas (15 buscas: cultura, social, inovação, meio ambiente, esporte)', fn: scrapeProsa },
+  { nome: 'Mapa Cultural (API nacional)', fn: scrapeMapaCultural },
 ]
 
 export async function executarColeta() {
@@ -16,6 +14,7 @@ export async function executarColeta() {
 
   for (const scraper of scrapers) {
     try {
+      console.log(`  🔄 ${scraper.nome}...`)
       const novos = await scraper.fn()
       resultados.push({ nome: scraper.nome, novos })
       console.log(`  ✅ ${scraper.nome}: ${novos} novos editais`)
@@ -25,6 +24,9 @@ export async function executarColeta() {
       console.error(`  ❌ ${scraper.nome}: ${msg}`)
     }
   }
+
+  const totalNovos = resultados.reduce((sum, r) => sum + r.novos, 0)
+  console.log(`\n📊 Total: ${totalNovos} novos editais encontrados`)
 
   return resultados
 }

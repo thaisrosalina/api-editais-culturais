@@ -1,7 +1,23 @@
 import * as cheerio from 'cheerio'
 import pool from '../db/pool.js'
 
-const BASE_URL = 'https://prosas.com.br/editais?query=cultura&status=open'
+const SEARCHES = [
+  { query: 'cultura', area: 'Cultura' },
+  { query: 'arte', area: 'Cultura' },
+  { query: 'patrimonio', area: 'Cultura' },
+  { query: 'social', area: 'Terceiro Setor' },
+  { query: 'comunidade', area: 'Terceiro Setor' },
+  { query: 'ong', area: 'Terceiro Setor' },
+  { query: 'inovacao', area: 'Inovação' },
+  { query: 'tecnologia', area: 'Inovação' },
+  { query: 'empreendedorismo', area: 'Inovação' },
+  { query: 'meio ambiente', area: 'Meio Ambiente' },
+  { query: 'sustentabilidade', area: 'Meio Ambiente' },
+  { query: 'esporte', area: 'Esporte' },
+  { query: 'juventude', area: 'Terceiro Setor' },
+  { query: 'educacao', area: 'Terceiro Setor' },
+  { query: 'diversidade', area: 'Terceiro Setor' },
+]
 
 export async function scrapeProsa(): Promise<number> {
   const fonteRes = await pool.query(
@@ -27,54 +43,54 @@ export async function scrapeProsa(): Promise<number> {
     const catRes = await pool.query("SELECT id FROM categorias WHERE slug = 'multidisciplinar'")
     const catId = catRes.rows[0]?.id
 
-    const response = await fetch(BASE_URL, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; EditalBot/1.0)' },
-    })
-    const html = await response.text()
-    const $ = cheerio.load(html)
-
-    const editais: { titulo: string; link: string; orgao: string; descricao: string; deadline: string }[] = []
-
-    $('.edital-card, .opportunity-card, .card, article').each((_i, el) => {
-      const $el = $(el)
-      const titulo = $el.find('h2, h3, .card-title, .edital-title, .opportunity-title').first().text().trim()
-      const linkEl = $el.find('a').first().attr('href') || ''
-      const orgao = $el.find('.organization, .org-name, .card-subtitle, .instituicao').first().text().trim()
-      const desc = $el.find('.description, .card-text, p').first().text().trim()
-      const deadline = $el.find('.deadline, .prazo, time, .date').first().text().trim()
-
-      if (titulo && titulo.length > 10) {
-        editais.push({
-          titulo: titulo.slice(0, 500),
-          link: linkEl.startsWith('http') ? linkEl : `https://prosas.com.br${linkEl}`,
-          orgao: orgao.slice(0, 300) || 'Via Prosas',
-          descricao: desc.slice(0, 2000),
-          deadline,
-        })
-      }
-    })
-
+    let totalEncontrados = 0
     let novos = 0
-    for (const edital of editais) {
-      const hash = `prosas-${edital.titulo.toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 60)}`
-      const existe = await pool.query('SELECT id FROM editais WHERE hash_unico = $1', [hash])
-      if (existe.rows.length) continue
+    const seen = new Set<string>()
 
-      const encerramento = parseDate(edital.deadline)
+    for (const search of SEARCHES) {
+      try {
+        const url = `https://prosas.com.br/editais?query=${encodeURIComponent(search.query)}&status=open`
+        const response = await fetch(url, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (compatible; EditalBot/1.0)' },
+          signal: AbortSignal.timeout(15000),
+        })
+        if (!response.ok) continue
+        const html = await response.text()
+        const $ = cheerio.load(html)
 
-      await pool.query(`
-        INSERT INTO editais (
-          fonte_id, titulo, orgao, descricao, categoria_id,
-          abrangencia, link_edital, link_inscricao, status, hash_unico,
-          data_coleta, data_encerramento, pode_pj
-        ) VALUES ($1, $2, $3, $4, $5, 'nacional', $6, $6, 'Aberto', $7, CURRENT_DATE, $8, true)
-      `, [fonteId, edital.titulo, edital.orgao, edital.descricao, catId, edital.link, hash, encerramento])
-      novos++
+        $('.edital-card, .opportunity-card, .card, article, .resultado-item').each((_i, el) => {
+          const $el = $(el)
+          const titulo = $el.find('h2, h3, .card-title, .edital-title, .opportunity-title, a').first().text().trim()
+          const linkEl = $el.find('a').first().attr('href') || ''
+          const orgao = $el.find('.organization, .org-name, .card-subtitle, .instituicao').first().text().trim()
+          const desc = $el.find('.description, .card-text, p').first().text().trim()
+          const deadline = $el.find('.deadline, .prazo, time, .date').first().text().trim()
+
+          if (titulo && titulo.length > 10) {
+            const hash = `prosas-${titulo.toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 60)}`
+            if (seen.has(hash)) return
+            seen.add(hash)
+
+            totalEncontrados++
+            const fullLink = linkEl.startsWith('http') ? linkEl : `https://prosas.com.br${linkEl}`
+            const encerramento = parseDate(deadline)
+
+            insertEdital(
+              fonteId, titulo, orgao || 'Via Prosas', desc, catId,
+              fullLink, hash, encerramento, search.area
+            ).then(inserted => { if (inserted) novos++ }).catch(() => {})
+          }
+        })
+      } catch {
+        // Busca individual falhou, continua
+      }
     }
+
+    await new Promise(resolve => setTimeout(resolve, 1000))
 
     await pool.query(
       "UPDATE coletas_log SET fim = NOW(), editais_encontrados = $1, editais_novos = $2, status = 'sucesso' WHERE id = $3",
-      [editais.length, novos, coletaId]
+      [totalEncontrados, novos, coletaId]
     )
     await pool.query("UPDATE fontes SET ultima_coleta = NOW() WHERE id = $1", [fonteId])
     return novos
@@ -86,6 +102,24 @@ export async function scrapeProsa(): Promise<number> {
     )
     throw err
   }
+}
+
+async function insertEdital(
+  fonteId: number, titulo: string, orgao: string, descricao: string,
+  catId: number, link: string, hash: string, encerramento: string | null, area: string
+): Promise<boolean> {
+  const existe = await pool.query('SELECT id FROM editais WHERE hash_unico = $1', [hash])
+  if (existe.rows.length) return false
+
+  await pool.query(`
+    INSERT INTO editais (
+      fonte_id, titulo, orgao, descricao, categoria_id,
+      abrangencia, link_edital, link_inscricao, status, hash_unico,
+      data_coleta, data_encerramento, pode_pj, fonte_encontrada,
+      subsetores_obs
+    ) VALUES ($1, $2, $3, $4, $5, 'nacional', $6, $6, 'Aberto', $7, CURRENT_DATE, $8, true, 'https://prosas.com.br', $9)
+  `, [fonteId, titulo.slice(0, 500), orgao, descricao.slice(0, 2000), catId, link, hash, encerramento, `Área: ${area}`])
+  return true
 }
 
 function parseDate(text: string): string | null {
