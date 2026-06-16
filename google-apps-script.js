@@ -206,45 +206,147 @@ function findHeaderRow(sheet) {
 
 function montarLinha(e) {
   var municipioUf = [e.municipio, e.uf].filter(Boolean).join('/')
+  var classificacao = classificarEdital(e)
+
   return [
     e.id_edital || '',
     e.titulo || '',
     e.orgao || '',
-    municipioUf,
-    e.abrangencia || '',
-    e.modalidade || '',
-    e.status || '',
+    municipioUf || 'Não informado',
+    e.abrangencia || 'Não informado',
+    e.modalidade || detectarModalidade(e),
+    e.status || 'Aberto',
     formatarData(e.data_publicacao),
     formatarData(e.data_abertura),
     formatarData(e.data_encerramento),
     e.dias_restantes != null ? e.dias_restantes : '',
-    e.pode_pf ? 'Sim' : 'Não',
-    e.pode_pj ? 'Sim' : 'Não',
-    e.exige_domicilio_local ? 'Sim' : 'Não',
+    e.pode_pf ? 'Sim' : (e.pode_pf === false ? 'Não' : 'Não informado'),
+    e.pode_pj ? 'Sim' : (e.pode_pj === false ? 'Não' : 'Não informado'),
+    e.exige_domicilio_local ? 'Sim' : (e.exige_domicilio_local === false ? 'Não' : 'Não informado'),
     e.qtd_projetos_por_proponente || 'Não informado',
     e.pontuacao_minima || 'Não informado',
     e.criterio_aprovacao || 'Não informado',
-    (e.setores || []).join('; '),
-    e.subsetores_obs || '',
-    e.perfil_alvo || '',
+    detectarSetores(e),
+    e.subsetores_obs || detectarSubsetores(e),
+    e.perfil_alvo || 'Não informado',
     e.teto_por_projeto ? formatarMoeda(e.teto_por_projeto) : 'Não informado',
     e.renuncia_total_estimada ? formatarMoeda(e.renuncia_total_estimada) : 'Não informado',
     e.imposto_incentivado || 'Não aplicável',
     e.contrapartida_obrigatoria ? 'Sim' : (e.contrapartida_obrigatoria === false ? 'Não' : 'Não informado'),
     e.exige_acessibilidade ? 'Sim' : (e.exige_acessibilidade === false ? 'Não' : 'Não informado'),
     e.exige_prestacao_contas ? 'Sim' : (e.exige_prestacao_contas === false ? 'Não' : 'Não informado'),
-    e.nivel_complexidade || 'Não informado',
+    e.nivel_complexidade || classificacao.complexidade,
     e.link_edital || '',
     e.link_dom || 'Não informado',
-    e.link_inscricao || 'Não informado',
-    e.fonte_encontrada || '',
-    formatarData(e.data_coleta),
+    e.link_inscricao || e.link_edital || 'Não informado',
+    e.fonte_encontrada || e.link_edital || '',
+    formatarData(e.data_coleta) || formatarData(new Date().toISOString()),
     e.responsavel_interno || 'Não informado',
-    e.prioridade || '',
-    e.go_nogo || '',
-    e.motivo_go_nogo || '',
+    e.prioridade || classificacao.prioridade,
+    e.go_nogo || classificacao.goNoGo,
+    e.motivo_go_nogo || classificacao.motivo,
     e.observacoes || ''
   ]
+}
+
+function classificarEdital(e) {
+  var titulo = (e.titulo || '').toLowerCase()
+  var orgao = (e.orgao || '').toLowerCase()
+  var desc = (e.descricao || '').toLowerCase()
+  var texto = titulo + ' ' + orgao + ' ' + desc
+  var dias = e.dias_restantes
+
+  var aderente = ['cultura', 'cultural', 'arte', 'artístico', 'patrimônio', 'patrimonio',
+    'audiovisual', 'música', 'musica', 'teatro', 'dança', 'literatura', 'museu',
+    'biblioteca', 'economia criativa', 'impacto social', 'terceiro setor',
+    'inovação', 'inovacao', 'tecnologia', 'diversidade', 'juventude',
+    'educação', 'educacao', 'sustentabilidade', 'território', 'comunidade',
+    'fomento', 'incentivo', 'proac', 'leic', 'lei rouanet', 'lei paulo gustavo',
+    'pnab', 'funarte', 'decentra', 'descentralização'
+  ].some(function(k) { return texto.includes(k) })
+
+  var temPrazo = dias != null && dias > 7
+  var prazoApertado = dias != null && dias >= 1 && dias <= 7
+  var encerrado = e.status === 'Encerrado' || (dias != null && dias < 0)
+
+  if (encerrado) {
+    return { prioridade: 'Baixa', goNoGo: 'No-Go', motivo: 'Edital encerrado', complexidade: 'Não informado' }
+  }
+
+  if (aderente && temPrazo) {
+    return {
+      prioridade: 'Alta',
+      goNoGo: 'Avaliar',
+      motivo: 'Aderência temática identificada; verificar elegibilidade e documentação',
+      complexidade: 'Média'
+    }
+  }
+
+  if (aderente && prazoApertado) {
+    return {
+      prioridade: 'Média',
+      goNoGo: 'Avaliar',
+      motivo: 'Aderente mas prazo curto (< 7 dias); avaliar viabilidade',
+      complexidade: 'Média'
+    }
+  }
+
+  if (aderente) {
+    return {
+      prioridade: 'Média',
+      goNoGo: 'Avaliar',
+      motivo: 'Aderência temática identificada; sem data de encerramento confirmada',
+      complexidade: 'Não informado'
+    }
+  }
+
+  return {
+    prioridade: 'Baixa',
+    goNoGo: 'Avaliar',
+    motivo: 'Aderência temática não confirmada; requer análise manual',
+    complexidade: 'Não informado'
+  }
+}
+
+function detectarModalidade(e) {
+  var texto = ((e.titulo || '') + ' ' + (e.descricao || '') + ' ' + (e.orgao || '')).toLowerCase()
+  if (texto.includes('lei rouanet') || texto.includes('lei paulo gustavo') || texto.includes('leic') || texto.includes('proac') || texto.includes('incentivo')) return 'Lei de Incentivo'
+  if (texto.includes('pnab') || texto.includes('fomento')) return 'PNAB - Fomento'
+  if (texto.includes('chamamento') || texto.includes('chamada pública') || texto.includes('chamada publica')) return 'Chamada pública'
+  if (texto.includes('prêmio') || texto.includes('premio') || texto.includes('premiação')) return 'Premiação'
+  if (texto.includes('patrocínio') || texto.includes('patrocinio')) return 'Patrocínio direto'
+  if (texto.includes('edital')) return 'Edital específico'
+  return 'Não informado'
+}
+
+function detectarSetores(e) {
+  if (e.setores && e.setores.length) return e.setores.join('; ')
+  var texto = ((e.titulo || '') + ' ' + (e.descricao || '') + ' ' + (e.subsetores_obs || '')).toLowerCase()
+  var setores = []
+  if (texto.includes('cultura') || texto.includes('arte')) setores.push('Cultura')
+  if (texto.includes('audiovisual') || texto.includes('cinema')) setores.push('Audiovisual')
+  if (texto.includes('música') || texto.includes('musica')) setores.push('Música')
+  if (texto.includes('teatro') || texto.includes('cênic')) setores.push('Artes cênicas')
+  if (texto.includes('patrimônio') || texto.includes('patrimonio') || texto.includes('museu')) setores.push('Patrimônio')
+  if (texto.includes('literatura') || texto.includes('biblioteca') || texto.includes('leitura')) setores.push('Literatura')
+  if (texto.includes('tecnologia') || texto.includes('inovação') || texto.includes('inovacao')) setores.push('Inovação/Tecnologia')
+  if (texto.includes('social') || texto.includes('comunidade') || texto.includes('terceiro setor')) setores.push('Impacto Social')
+  if (texto.includes('esporte') || texto.includes('lazer')) setores.push('Esporte')
+  if (texto.includes('meio ambiente') || texto.includes('sustentab')) setores.push('Meio Ambiente')
+  if (texto.includes('educação') || texto.includes('educacao') || texto.includes('juventude')) setores.push('Educação')
+  if (texto.includes('diversidade') || texto.includes('equidade')) setores.push('Diversidade')
+  return setores.length ? setores.join('; ') : 'Não informado'
+}
+
+function detectarSubsetores(e) {
+  var texto = ((e.titulo || '') + ' ' + (e.descricao || '')).toLowerCase()
+  var obs = []
+  if (texto.includes('belo horizonte') || texto.includes('bh') || (e.municipio || '').toLowerCase().includes('belo horizonte')) obs.push('BH')
+  if (texto.includes('minas gerais') || e.uf === 'MG') obs.push('MG')
+  if (texto.includes('são paulo') || e.uf === 'SP') obs.push('SP')
+  if (texto.includes('rio de janeiro') || e.uf === 'RJ') obs.push('RJ')
+  if (e.fonte_nome) obs.push('Fonte: ' + e.fonte_nome)
+  return obs.length ? obs.join('; ') : ''
 }
 
 function formatarData(isoDate) {
