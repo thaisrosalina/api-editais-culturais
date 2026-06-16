@@ -10,7 +10,7 @@
  * 6. (Opcional) Configure um gatilho para rodar diariamente
  */
 
-const API_URL = 'http://localhost:3002' // Mude para URL de produção quando fizer deploy
+const API_URL = 'https://api-editais-culturais.onrender.com'
 
 const SHEET_NAME = 'Editais'
 
@@ -124,11 +124,15 @@ function sincronizarEditais() {
   // Aplicar formatação condicional
   aplicarFormatacao(sheet, dataStartRow, rows.length)
 
-  SpreadsheetApp.getUi().alert(
-    'Sincronização concluída!\n\n' +
-    rows.length + ' editais importados da API.\n' +
-    'Última atualização: ' + new Date().toLocaleString('pt-BR')
-  )
+  try {
+    SpreadsheetApp.getUi().alert(
+      'Sincronização concluída!\n\n' +
+      rows.length + ' editais importados da API.\n' +
+      'Última atualização: ' + new Date().toLocaleString('pt-BR')
+    )
+  } catch (e) {
+    console.log('Sincronização concluída: ' + rows.length + ' editais importados.')
+  }
 }
 
 function formatarData(isoDate) {
