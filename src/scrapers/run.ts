@@ -1,11 +1,13 @@
 import { scrapeGovBr } from './govbr-cultura.js'
 import { scrapeProsa } from './prosas.js'
 import { scrapeMapaCultural } from './mapacultural.js'
+import { scrapeSudeste } from './sudeste.js'
 
 const scrapers = [
   { nome: 'Gov.br (Cultura, Esporte, MMA, MCTI, Terceiro Setor, Funarte, FINEP, CNPq)', fn: scrapeGovBr },
   { nome: 'Prosas (15 buscas: cultura, social, inovação, meio ambiente, esporte)', fn: scrapeProsa },
   { nome: 'Mapa Cultural (API nacional)', fn: scrapeMapaCultural },
+  { nome: 'Sudeste (PBH, Mapa Cultural BH, Decentra MG, LEIC, PROAC, SP, RJ, ES)', fn: scrapeSudeste },
 ]
 
 export async function executarColeta() {
