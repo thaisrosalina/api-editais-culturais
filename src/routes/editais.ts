@@ -12,7 +12,7 @@ const router = Router()
  *     parameters:
  *       - in: query
  *         name: status
- *         schema: { type: string, enum: [aberto, encerrado, em_breve, suspenso, resultado] }
+ *         schema: { type: string, enum: [Aberto, Encerrado, Em breve, Suspenso, Resultado publicado] }
  *       - in: query
  *         name: uf
  *         schema: { type: string }
@@ -97,18 +97,28 @@ router.get('/', async (req: Request, res: Response) => {
              WHEN e.data_encerramento IS NOT NULL
              THEN (e.data_encerramento - CURRENT_DATE)::int
              ELSE NULL
-           END AS dias_restantes
+           END AS dias_restantes,
+           CASE
+             WHEN e.data_encerramento IS NOT NULL AND e.data_encerramento < CURRENT_DATE
+               AND e.status IN ('Aberto', 'Em breve')
+             THEN 'Encerrado'
+             ELSE e.status
+           END AS status
     FROM editais e
     LEFT JOIN categorias c ON c.id = e.categoria_id
     LEFT JOIN fontes f ON f.id = e.fonte_id
     ${where}
     ORDER BY
-      CASE e.status
-        WHEN 'aberto' THEN 1
-        WHEN 'em_breve' THEN 2
-        WHEN 'encerrado' THEN 3
-        ELSE 4
-      END,
+      CASE
+        WHEN e.data_encerramento IS NOT NULL AND e.data_encerramento < CURRENT_DATE
+          AND e.status IN ('Aberto', 'Em breve') THEN 'Encerrado'
+        ELSE e.status
+      END = 'Aberto' DESC,
+      CASE
+        WHEN e.data_encerramento IS NOT NULL AND e.data_encerramento < CURRENT_DATE
+          AND e.status IN ('Aberto', 'Em breve') THEN 'Encerrado'
+        ELSE e.status
+      END = 'Em breve' DESC,
       e.data_encerramento ASC NULLS LAST,
       e.prioridade = 'Alta' DESC,
       e.criado_em DESC
@@ -237,14 +247,26 @@ router.get('/:id', async (req: Request, res: Response) => {
   const query = isNumeric
     ? `SELECT e.*, c.nome AS categoria_nome, c.slug AS categoria_slug,
               f.nome AS fonte_nome, f.url_base AS fonte_url,
-              (e.data_encerramento - CURRENT_DATE)::int AS dias_restantes
+              (e.data_encerramento - CURRENT_DATE)::int AS dias_restantes,
+              CASE
+                WHEN e.data_encerramento IS NOT NULL AND e.data_encerramento < CURRENT_DATE
+                  AND e.status IN ('Aberto', 'Em breve')
+                THEN 'Encerrado'
+                ELSE e.status
+              END AS status
        FROM editais e
        LEFT JOIN categorias c ON c.id = e.categoria_id
        LEFT JOIN fontes f ON f.id = e.fonte_id
        WHERE e.id = $1`
     : `SELECT e.*, c.nome AS categoria_nome, c.slug AS categoria_slug,
               f.nome AS fonte_nome, f.url_base AS fonte_url,
-              (e.data_encerramento - CURRENT_DATE)::int AS dias_restantes
+              (e.data_encerramento - CURRENT_DATE)::int AS dias_restantes,
+              CASE
+                WHEN e.data_encerramento IS NOT NULL AND e.data_encerramento < CURRENT_DATE
+                  AND e.status IN ('Aberto', 'Em breve')
+                THEN 'Encerrado'
+                ELSE e.status
+              END AS status
        FROM editais e
        LEFT JOIN categorias c ON c.id = e.categoria_id
        LEFT JOIN fontes f ON f.id = e.fonte_id
