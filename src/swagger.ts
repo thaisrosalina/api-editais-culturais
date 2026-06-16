@@ -12,9 +12,14 @@ const options: swaggerJsdoc.Options = {
         url: 'https://github.com/thaisrosalina',
       },
     },
-    servers: [
-      { url: 'http://localhost:3002', description: 'Desenvolvimento' },
-    ],
+    servers: process.env.RENDER_EXTERNAL_URL
+      ? [
+          { url: process.env.RENDER_EXTERNAL_URL, description: 'Produção (Render)' },
+          { url: 'http://localhost:3002', description: 'Desenvolvimento' },
+        ]
+      : [
+          { url: 'http://localhost:3002', description: 'Desenvolvimento' },
+        ],
     tags: [
       { name: 'Editais', description: 'Consulta e filtragem de editais culturais' },
       { name: 'Categorias', description: 'Segmentos artísticos e culturais' },

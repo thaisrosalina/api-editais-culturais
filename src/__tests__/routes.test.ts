@@ -23,9 +23,10 @@ describe('API Routes', () => {
 
   it('deve gerar spec Swagger válida', async () => {
     const { swaggerSpec } = await import('../swagger.js')
-    expect(swaggerSpec).toBeDefined()
-    expect(swaggerSpec.openapi).toBe('3.0.0')
-    expect(swaggerSpec.info.title).toContain('Editais')
-    expect(swaggerSpec.paths).toBeDefined()
+    const spec = swaggerSpec as Record<string, unknown>
+    expect(spec).toBeDefined()
+    expect(spec.openapi).toBe('3.0.0')
+    expect((spec.info as Record<string, unknown>).title).toContain('Editais')
+    expect(spec.paths).toBeDefined()
   })
 })

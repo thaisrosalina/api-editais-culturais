@@ -148,7 +148,7 @@ router.get('/export/csv', async (req: Request, res: Response) => {
   const params: unknown[] = []
   let i = 1
 
-  if (req.query.status) { conditions.push(`e.status = $${i++}`); params.push(req.query.status) }
+  if (req.query.status) { conditions.push(`e.status = $${i++}`); params.push(String(req.query.status)) }
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
 
   const { rows } = await pool.query(`
@@ -232,7 +232,8 @@ router.get('/export/csv', async (req: Request, res: Response) => {
  *         description: Edital não encontrado
  */
 router.get('/:id', async (req: Request, res: Response) => {
-  const isNumeric = /^\d+$/.test(req.params.id)
+  const id = String(req.params.id)
+  const isNumeric = /^\d+$/.test(id)
   const query = isNumeric
     ? `SELECT e.*, c.nome AS categoria_nome, c.slug AS categoria_slug,
               f.nome AS fonte_nome, f.url_base AS fonte_url,
@@ -249,7 +250,7 @@ router.get('/:id', async (req: Request, res: Response) => {
        LEFT JOIN fontes f ON f.id = e.fonte_id
        WHERE e.id_edital = $1`
 
-  const { rows } = await pool.query(query, [req.params.id])
+  const { rows } = await pool.query(query, [id])
   if (!rows.length) { res.status(404).json({ erro: 'Edital não encontrado' }); return }
   res.json(rows[0])
 })

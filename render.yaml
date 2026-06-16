@@ -1,0 +1,22 @@
+databases:
+  - name: editais-db
+    plan: free
+    databaseName: editais_culturais
+    user: editais
+
+services:
+  - type: web
+    plan: free
+    name: api-editais-culturais
+    runtime: node
+    buildCommand: npm install && npx tsc && cp -r src/db/migrations dist/db/migrations && npx tsx src/db/migrate.ts
+    startCommand: node dist/index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3002
+      - key: DATABASE_URL
+        fromDatabase:
+          name: editais-db
+          property: connectionString
