@@ -1,12 +1,9 @@
 /**
  * Google Apps Script — Sincroniza a planilha com a API de Editais Culturais
- * Editais ativos vão para aba "Editais", encerrados vão para "Memórias"
+ * Segue o Guia de Uso: Editais, Memoria, abas por responsável, Resumo_Diario
  */
 
 var API_URL = 'https://api-editais-culturais.onrender.com'
-
-var SHEET_NAME = 'Editais'
-var MEMORIA_NAME = 'Memórias'
 
 var HEADERS = [
   'ID_Edital', 'Nome_Edital', 'Órgão', 'Município/UF', 'Abrangência',
@@ -21,6 +18,8 @@ var HEADERS = [
   'Prioridade', 'Go/No-Go', 'Motivo_Go_No-Go', 'Observações'
 ]
 
+var RESPONSAVEIS = ['Thais Oliveira', 'Isabela Cunha', 'Laís Oliveira']
+
 function sincronizarEditais() {
   var response = UrlFetchApp.fetch(API_URL + '/api/editais?limite=200')
   var data = JSON.parse(response.getContentText())
@@ -30,20 +29,38 @@ function sincronizarEditais() {
 
   var ativos = []
   var encerrados = []
+  var porResponsavel = {}
+
+  RESPONSAVEIS.forEach(function(nome) { porResponsavel[nome] = [] })
 
   editais.forEach(function(e) {
     var row = montarLinha(e)
+
     if (e.status === 'Encerrado' || e.status === 'Resultado publicado') {
       encerrados.push(row)
     } else {
       ativos.push(row)
     }
+
+    var resp = e.responsavel_interno || ''
+    if (porResponsavel[resp] !== undefined) {
+      porResponsavel[resp].push(row)
+    }
   })
 
-  preencherAba(ss, SHEET_NAME, ativos, true)
-  preencherAba(ss, MEMORIA_NAME, encerrados, false)
+  preencherAba(ss, 'Editais', ativos, true)
+  preencherAba(ss, 'Memoria', encerrados, false)
 
-  console.log('Sincronização concluída: ' + ativos.length + ' ativos + ' + encerrados.length + ' em Memórias.')
+  RESPONSAVEIS.forEach(function(nome) {
+    preencherAba(ss, nome, porResponsavel[nome], false)
+  })
+
+  preencherResumo(ss, editais, ativos, encerrados)
+
+  console.log(
+    'Sincronização concluída: ' + ativos.length + ' ativos, ' +
+    encerrados.length + ' em Memoria, ' + editais.length + ' total.'
+  )
 }
 
 function preencherAba(ss, nomeAba, rows, comLegenda) {
@@ -92,6 +109,137 @@ function preencherAba(ss, nomeAba, rows, comLegenda) {
   }
 
   aplicarFormatacao(sheet, dataStartRow, rows.length)
+}
+
+function preencherResumo(ss, todos, ativos, encerrados) {
+  var sheet = ss.getSheetByName('Resumo_Diario')
+  if (!sheet) {
+    sheet = ss.insertSheet('Resumo_Diario')
+  }
+
+  sheet.clear()
+
+  var urgentes7 = []
+  var urgentes15 = []
+  var porPrioridade = { 'Alta': 0, 'Média': 0, 'Baixa': 0 }
+  var porGo = { 'Go': 0, 'Avaliar': 0, 'No-Go': 0 }
+  var porModalidade = {}
+  var porUf = {}
+
+  todos.forEach(function(e) {
+    if (e.status !== 'Encerrado' && e.status !== 'Resultado publicado') {
+      if (e.prioridade && porPrioridade[e.prioridade] !== undefined) {
+        porPrioridade[e.prioridade]++
+      }
+      if (e.go_nogo && porGo[e.go_nogo] !== undefined) {
+        porGo[e.go_nogo]++
+      }
+      if (e.dias_restantes != null && e.dias_restantes >= 0 && e.dias_restantes <= 7) {
+        urgentes7.push(e)
+      } else if (e.dias_restantes != null && e.dias_restantes > 7 && e.dias_restantes <= 15) {
+        urgentes15.push(e)
+      }
+    }
+
+    var mod = e.modalidade || 'Não informado'
+    porModalidade[mod] = (porModalidade[mod] || 0) + 1
+
+    var uf = e.uf || 'Nacional/Outro'
+    porUf[uf] = (porUf[uf] || 0) + 1
+  })
+
+  var r = 1
+
+  sheet.getRange(r, 1).setValue('RESUMO DIÁRIO — EDITAIS CULTURAIS')
+  sheet.getRange(r, 1).setFontWeight('bold').setFontSize(14)
+  r += 1
+  sheet.getRange(r, 1).setValue('Atualizado em: ' + new Date().toLocaleString('pt-BR'))
+  r += 2
+
+  sheet.getRange(r, 1).setValue('▌ KPIs GERAIS')
+  sheet.getRange(r, 1).setFontWeight('bold').setFontSize(12)
+  r += 1
+
+  var kpis = [
+    ['Total de editais na base', todos.length],
+    ['Editais ativos', ativos.length],
+    ['Editais encerrados (Memoria)', encerrados.length],
+    ['Prioridade Alta', porPrioridade['Alta']],
+    ['Prioridade Média', porPrioridade['Média']],
+    ['Prioridade Baixa', porPrioridade['Baixa']],
+    ['Go', porGo['Go']],
+    ['Avaliar', porGo['Avaliar']],
+    ['No-Go', porGo['No-Go']],
+    ['Prazo ≤ 7 dias', urgentes7.length],
+    ['Prazo 8-15 dias', urgentes15.length]
+  ]
+
+  sheet.getRange(r, 1, kpis.length, 2).setValues(kpis)
+  sheet.getRange(r, 1, kpis.length, 1).setFontWeight('bold')
+  r += kpis.length + 2
+
+  if (urgentes7.length > 0) {
+    sheet.getRange(r, 1).setValue('▌ URGENTES — Prazo ≤ 7 dias')
+    sheet.getRange(r, 1).setFontWeight('bold').setFontSize(12).setFontColor('#cc0000')
+    r += 1
+
+    var urgHeaders = ['ID', 'Nome', 'Dias Restantes', 'Prioridade', 'Go/No-Go', 'Responsável']
+    sheet.getRange(r, 1, 1, urgHeaders.length).setValues([urgHeaders])
+    sheet.getRange(r, 1, 1, urgHeaders.length).setFontWeight('bold')
+    r += 1
+
+    urgentes7.forEach(function(e) {
+      sheet.getRange(r, 1, 1, 6).setValues([[
+        e.id_edital || '', e.titulo || '', e.dias_restantes,
+        e.prioridade || '', e.go_nogo || '', e.responsavel_interno || ''
+      ]])
+      sheet.getRange(r, 1, 1, 6).setBackground('#fce5cd')
+      r += 1
+    })
+    r += 1
+  }
+
+  if (urgentes15.length > 0) {
+    sheet.getRange(r, 1).setValue('▌ ATENÇÃO — Prazo 8 a 15 dias')
+    sheet.getRange(r, 1).setFontWeight('bold').setFontSize(12).setFontColor('#b45f06')
+    r += 1
+
+    var attHeaders = ['ID', 'Nome', 'Dias Restantes', 'Prioridade', 'Go/No-Go', 'Responsável']
+    sheet.getRange(r, 1, 1, attHeaders.length).setValues([attHeaders])
+    sheet.getRange(r, 1, 1, attHeaders.length).setFontWeight('bold')
+    r += 1
+
+    urgentes15.forEach(function(e) {
+      sheet.getRange(r, 1, 1, 6).setValues([[
+        e.id_edital || '', e.titulo || '', e.dias_restantes,
+        e.prioridade || '', e.go_nogo || '', e.responsavel_interno || ''
+      ]])
+      sheet.getRange(r, 1, 1, 6).setBackground('#fff2cc')
+      r += 1
+    })
+    r += 1
+  }
+
+  sheet.getRange(r, 1).setValue('▌ POR MODALIDADE')
+  sheet.getRange(r, 1).setFontWeight('bold').setFontSize(12)
+  r += 1
+  var modKeys = Object.keys(porModalidade).sort(function(a, b) { return porModalidade[b] - porModalidade[a] })
+  modKeys.forEach(function(k) {
+    sheet.getRange(r, 1, 1, 2).setValues([[k, porModalidade[k]]])
+    r += 1
+  })
+  r += 1
+
+  sheet.getRange(r, 1).setValue('▌ POR UF')
+  sheet.getRange(r, 1).setFontWeight('bold').setFontSize(12)
+  r += 1
+  var ufKeys = Object.keys(porUf).sort(function(a, b) { return porUf[b] - porUf[a] })
+  ufKeys.forEach(function(k) {
+    sheet.getRange(r, 1, 1, 2).setValues([[k, porUf[k]]])
+    r += 1
+  })
+
+  sheet.autoResizeColumns(1, 6)
 }
 
 function montarLinha(e) {
@@ -207,7 +355,7 @@ function configurarGatilho() {
     .create()
 
   try {
-    SpreadsheetApp.getUi().alert('Gatilho configurado! A planilha será atualizada diariamente às 7h.')
+    SpreadsheetApp.getUi().alert('Gatilho configurado! Atualização diária às 7h.')
   } catch (e) {
     console.log('Gatilho configurado para sincronização diária às 7h.')
   }
